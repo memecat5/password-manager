@@ -57,7 +57,6 @@ fn main() {
     let mut vault = load_vault();
 
     // Prepare for REPL
-    //let mut labels = vec![];
     let commands = vec![
         String::from("new"),
         String::from("remove"),
@@ -71,6 +70,9 @@ fn main() {
     let prompt = DefaultPrompt::default();
 
     let mut line_editor = bulid_line_editor(vault.keys().cloned().collect(), commands.clone());
+
+    // System's clipboard to copy passwords
+    let mut clipboard: ClipboardContext = ClipboardProvider::new().expect("Cannot access system's clipboard");
 
     // Show all available commands
     print_help();
@@ -89,94 +91,112 @@ fn main() {
                     "new" => {
                         if parts.len() < 2 {
                             println!("Użycie: new <nazwa>");
-                        } else {
-                            let label = parts[1];
-                            let password = generate_random_password();
-                            add_and_save_password(&mut vault, label, &password, &master_key);
-                            println!("Hasło {} pomyślnie zapisane", label);
-
-                            line_editor = bulid_line_editor(vault.keys().cloned().collect(), commands.clone());
+                            continue;
                         }
+                        
+                        let label = parts[1];
+                        if vault.contains_key(label){
+                            println!("Już istnieje hasło z tą etykietą!");
+                            continue;
+                        }
+
+                        let password = generate_random_password();
+                        add_and_save_password(&mut vault, label, &password, &master_key);
+                        println!("Hasło {} pomyślnie zapisane", label);
+
+                        line_editor = bulid_line_editor(vault.keys().cloned().collect(), commands.clone());
+                        
                     }
                     "remove" => {
                         if parts.len() < 2 {
                             println!("Użycie: remove <nazwa>");
-                        } else {
-                            let label = parts[1];
-                            print!("Czy na pewno chcesz usunąć hasło {}? Tej akcji nie można odwrócić. T/[N] ", label);
-                            
-                            io::stdout().flush().unwrap();
-                            let mut input = String::new();
-                            match io::stdin().read_line(&mut input) {
-                                Ok(_) => {
-                                    if input.trim() == "T" {
-                                        remove_password_and_save(&mut vault, label);
-                                        println!("Hasło {} usunięte", label);
-                                        
-                                        // Rebuild line_editor with updated completions
-                                        line_editor = bulid_line_editor(vault.keys().cloned().collect(), commands.clone());
-
-                                    } else {
-                                        println!("Nie potwierdzono usunięcia");
-                                    }
-                                }
-                                Err(_) => println!("Błąd odczytu"),
-                            }
+                            continue;
                         }
+
+                        let label = parts[1];
+                        if !vault.contains_key(label){
+                            println!("Nie ma zapisanego hasła z taką etykietą");
+                            continue;
+                        }
+
+                        print!("Czy na pewno chcesz usunąć hasło {}? Tej akcji nie można odwrócić. T/[N] ", label);
+                        
+                        io::stdout().flush().unwrap();
+                        let mut input = String::new();
+                        match io::stdin().read_line(&mut input) {
+                            Ok(_) => {
+                                if input.trim() == "T" {
+                                    let removed_password = get_password(label, &master_key);
+                                    remove_password_and_save(&mut vault, label);
+                                    println!("Usunięto hasło {}: {}", label, removed_password.unwrap());
+                                    
+                                    // Rebuild line_editor with updated completions
+                                    line_editor = bulid_line_editor(vault.keys().cloned().collect(), commands.clone());
+
+                                } else {
+                                    println!("Nie potwierdzono usunięcia");
+                                }
+                            }
+                            Err(_) => println!("Błąd odczytu"),
+                        }
+                        
                     }
                     "get" => {
                         if parts.len() < 2 {
                             println!("Użycie: get <nazwa>");
-                        } else {
-                            let label = parts[1];
-                            
-                            let password = get_password(label, &master_key);
-                            match password{
-                                Some(password) => {
-                                    let mut clipboard: ClipboardContext = ClipboardProvider::new().expect("Cannot access system's clipboard");
-                                    clipboard.set_contents(password).expect("Cannot access system's clipboard");
-
-                                    println!("Hasło skopiowane do schowka!");
-                                }
-                                None => {println!("Nie ma zapisanego hasła z taką etykietą");}
-                            }
-
+                            continue;
                         }
+                        let label = parts[1];
+                        
+                        let password = get_password(label, &master_key);
+                        match password{
+                            Some(password) => {
+                                clipboard.set_contents(password).expect("Cannot access system's clipboard");
+
+                                println!("Hasło skopiowane do schowka!");
+                            }
+                            None => {println!("Nie ma zapisanego hasła z taką etykietą");}
+                        }
+
                     }
                     "change-password" => {
                         if parts.len() > 1{
                             println!("Nadmiarowy argument {}", parts[1]);
-                        } else{
-                            print!("Czy na pewno chcesz zmienić główne hasło? T/[N] ");
-                            
-                            io::stdout().flush().unwrap();
-                            let mut input = String::new();
-                            match io::stdin().read_line(&mut input) {
-                                Ok(_) => {
-                                    if input.trim() == "T" {
-                                        if let Some(new_password) = set_new_password(){
-                                            let salt = load_salt().expect("Error reading salt file");
-                                            let new_master_key = derive_master_key(&new_password, &salt);
-
-                                            // Decrypt all passwords and encrypt them with new password
-                                            
-                                            // need to also change it in auth
-                                            //change_master_password(&mut vault, &master_key, &new_master_key);
-
-                                            // Why does this work when new is not mut?
-                                            master_key = new_master_key;
-
-                                        } else{
-                                            println!("Powtórzone hasło musi być identyczne jak pierwsze! Nie zmieniono hasła.");
-                                        }
-
-                                    } else {
-                                        println!("Nie potwierdzono zmiany hasła");
-                                    }
-                                }
-                                Err(_) => println!("Błąd odczytu"),
-                            }
+                            continue;
                         }
+                        
+                        print!("Czy na pewno chcesz zmienić główne hasło? T/[N] ");
+                        
+                        io::stdout().flush().unwrap();
+                        let mut input = String::new();
+                        match io::stdin().read_line(&mut input) {
+                            Ok(_) => {
+                                if input.trim() == "T" {
+                                    if let Some(new_password) = set_new_password(){
+                                        let salt = load_salt().expect("Error reading salt file");
+                                        let new_master_key = derive_master_key(&new_password, &salt);
+                                        
+                                        // Decrypt all passwords and encrypt them with new password
+                                        change_master_password(&mut vault, &master_key, &new_master_key);
+
+                                        // need to also change it in auth
+                                        create_verification_token(&new_master_key);
+
+                                        // Why does this work when new is not mut?
+                                        master_key = new_master_key;
+
+                                        println!("Nowe hasło ustawione!");
+                                    } else{
+                                        println!("Powtórzone hasło musi być identyczne jak pierwsze! Nie zmieniono hasła.");
+                                    }
+
+                                } else {
+                                    println!("Nie potwierdzono zmiany hasła");
+                                }
+                            }
+                            Err(_) => println!("Błąd odczytu"),
+                        }
+                        
                     }
                     "help" => {
                         if parts.len() > 1{
@@ -189,8 +209,7 @@ fn main() {
                         if parts.len() > 1{
                             println!("Nadmiarowy argument {}", parts[1]);
                         } else{
-                            // Clear master_key from memory
-                            on_exit(&mut master_key);
+                            on_exit(&mut master_key, clipboard);
                             break;
                         }
                     }
@@ -198,8 +217,7 @@ fn main() {
                 }
             }
             Ok(Signal::CtrlD) | Ok(Signal::CtrlC) => {
-                // Clear master_key from memory
-                on_exit(&mut master_key);
+                on_exit(&mut master_key, clipboard);
                 break;
             }
             _ => {}
@@ -219,8 +237,10 @@ fn print_help(){
     );
 }
 
-fn on_exit(master_key: &mut [u8]){
+/// Clear master_key and potential password in clipboard
+fn on_exit(master_key: &mut [u8], mut clipboard: ClipboardContext){
     master_key.zeroize();
+    clipboard.set_contents(String::from("")).expect("Cannot modify system's clipboard");
     println!("Zakończono");
 }
 
