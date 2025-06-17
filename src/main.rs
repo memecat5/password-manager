@@ -4,10 +4,11 @@ mod cli;
 
 use std::io::{self, Write};
 use clipboard::{ClipboardProvider, ClipboardContext};
-use reedline::{Signal, DefaultPrompt};
+use reedline::Signal;
 use rpassword::read_password;
 use zeroize::Zeroize;
 use crate::auth::*;
+use crate::cli::MyPrompt;
 use crate::password_storage::*;
 
 
@@ -67,10 +68,7 @@ fn main() {
         ];
 
     // Set prompt
-    let prompt = DefaultPrompt::new(
-        reedline::DefaultPromptSegment::Basic(String::from("passman")),
-        reedline::DefaultPromptSegment::Empty
-    );
+    let prompt = MyPrompt;
 
     let mut line_editor = cli::bulid_line_editor(vault.keys().cloned().collect(), commands.clone());
 
