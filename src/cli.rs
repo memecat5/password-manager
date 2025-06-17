@@ -1,5 +1,7 @@
-use reedline::{default_emacs_keybindings, ColumnarMenu, Completer, Emacs, KeyCode,
-    KeyModifiers, MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu, Span, Suggestion};
+use reedline::{default_emacs_keybindings, ColumnarMenu, Completer, Emacs, KeyCode, KeyModifiers, MenuBuilder, Prompt, Reedline, ReedlineEvent, ReedlineMenu, Span, Suggestion};
+
+use reedline::{PromptEditMode, PromptHistorySearch};
+use std::borrow::Cow;
 
 // Custom completer to handle commands and optional labels
 pub struct CommandAndLabelCompleter {
@@ -110,4 +112,28 @@ pub fn bulid_line_editor(labels: Vec<String>, commands: Vec<String>) -> Reedline
         .with_completer(completer)
         .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
         .with_edit_mode(edit_mode);
+}
+
+pub struct MyPrompt;
+
+impl Prompt for MyPrompt {
+    fn render_prompt_left(&self) -> Cow<'_, str> {
+        Cow::Owned("\x1b[32mpassman> \x1b[0m".to_string()) // all green prompt
+    }
+
+    fn render_prompt_right(&self) -> Cow<'_, str> {
+        Cow::Borrowed("")   //nothing on the right
+    }
+
+    fn render_prompt_indicator(&self, _prompt_mode: PromptEditMode) -> Cow<'_, str> {
+        Cow::Borrowed("")
+    }
+
+    fn render_prompt_multiline_indicator(&self) -> Cow<'_, str> {
+        Cow::Borrowed("... ")
+    }
+
+    fn render_prompt_history_search_indicator(&self, _history_search: PromptHistorySearch) -> Cow<'_, str> {
+        Cow::Borrowed("? ") // for history search on ctrl+R
+    }
 }
