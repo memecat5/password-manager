@@ -1,10 +1,10 @@
 mod auth;
 mod password_storage;
+mod cli;
 
 use std::io::{self, Write};
 use clipboard::{ClipboardProvider, ClipboardContext};
-use reedline::{default_emacs_keybindings, ColumnarMenu, Completer, Emacs, KeyCode, KeyModifiers, MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu};
-use reedline::{Signal, DefaultPrompt, Span, Suggestion};
+use reedline::{Signal, DefaultPrompt};
 use rpassword::read_password;
 use zeroize::Zeroize;
 use crate::auth::*;
@@ -66,10 +66,13 @@ fn main() {
         String::from("exit")
         ];
 
+    // Set prompt
+    let prompt = DefaultPrompt::new(
+        reedline::DefaultPromptSegment::Basic(String::from("passman")),
+        reedline::DefaultPromptSegment::Empty
+    );
 
-    let prompt = DefaultPrompt::default();
-
-    let mut line_editor = bulid_line_editor(vault.keys().cloned().collect(), commands.clone());
+    let mut line_editor = cli::bulid_line_editor(vault.keys().cloned().collect(), commands.clone());
 
     // System's clipboard to copy passwords
     let mut clipboard: ClipboardContext = ClipboardProvider::new().expect("Cannot access system's clipboard");
@@ -87,6 +90,7 @@ fn main() {
                     continue;
                 }
 
+                // Match command
                 match parts[0] {
                     "new" => {
                         if parts.len() < 2 {
@@ -94,17 +98,20 @@ fn main() {
                             continue;
                         }
                         
+                        // Check if this label isn't already used
                         let label = parts[1];
                         if vault.contains_key(label){
                             println!("Już istnieje hasło z tą etykietą!");
                             continue;
                         }
 
+                        // Generate random password and save it
                         let password = generate_random_password();
                         add_and_save_password(&mut vault, label, &password, &master_key);
                         println!("Hasło {} pomyślnie zapisane", label);
 
-                        line_editor = bulid_line_editor(vault.keys().cloned().collect(), commands.clone());
+                        // Rebuild line editor to update completions (but it clears history)
+                        line_editor = cli::bulid_line_editor(vault.keys().cloned().collect(), commands.clone());
                         
                     }
                     "remove" => {
@@ -113,25 +120,30 @@ fn main() {
                             continue;
                         }
 
+                        // Check if there is such password to remove
                         let label = parts[1];
                         if !vault.contains_key(label){
                             println!("Nie ma zapisanego hasła z taką etykietą");
                             continue;
                         }
 
+                        // Ask for confirmation, 'T' confirms, anthing else cancels
                         print!("Czy na pewno chcesz usunąć hasło {}? Tej akcji nie można odwrócić. T/[N] ", label);
                         
                         io::stdout().flush().unwrap();
                         let mut input = String::new();
                         match io::stdin().read_line(&mut input) {
                             Ok(_) => {
+                                // If confirmed
                                 if input.trim() == "T" {
-                                    let removed_password = get_password(label, &master_key);
+
+                                    // Here this label must exist, it was checked before
+                                    let removed_password = get_password(label, &master_key).expect("Couldn't decrypt password");
                                     remove_password_and_save(&mut vault, label);
-                                    println!("Usunięto hasło {}: {}", label, removed_password.unwrap());
+                                    println!("Usunięto hasło {}: {}", label, removed_password);
                                     
-                                    // Rebuild line_editor with updated completions
-                                    line_editor = bulid_line_editor(vault.keys().cloned().collect(), commands.clone());
+                                    // Rebuild line editor to update completions (but it clears history)
+                                    line_editor = cli::bulid_line_editor(vault.keys().cloned().collect(), commands.clone());
 
                                 } else {
                                     println!("Nie potwierdzono usunięcia");
@@ -148,11 +160,13 @@ fn main() {
                         }
                         let label = parts[1];
                         
+                        // Get password or None if there is not such label saved
                         let password = get_password(label, &master_key);
                         match password{
                             Some(password) => {
-                                clipboard.set_contents(password).expect("Cannot access system's clipboard");
 
+                                // Copy password to clipboard
+                                clipboard.set_contents(password).expect("Cannot access system's clipboard");
                                 println!("Hasło skopiowane do schowka!");
                             }
                             None => {println!("Nie ma zapisanego hasła z taką etykietą");}
@@ -165,6 +179,7 @@ fn main() {
                             continue;
                         }
                         
+                        // Ask for confirmation
                         print!("Czy na pewno chcesz zmienić główne hasło? T/[N] ");
                         
                         io::stdout().flush().unwrap();
@@ -172,24 +187,17 @@ fn main() {
                         match io::stdin().read_line(&mut input) {
                             Ok(_) => {
                                 if input.trim() == "T" {
-                                    if let Some(new_password) = set_new_password(){
-                                        let salt = load_salt().expect("Error reading salt file");
-                                        let new_master_key = derive_master_key(&new_password, &salt);
-                                        
-                                        // Decrypt all passwords and encrypt them with new password
-                                        change_master_password(&mut vault, &master_key, &new_master_key);
-
-                                        // need to also change it in auth
-                                        create_verification_token(&new_master_key);
-
-                                        // Why does this work when new is not mut?
-                                        master_key = new_master_key;
-
-                                        println!("Nowe hasło ustawione!");
-                                    } else{
-                                        println!("Powtórzone hasło musi być identyczne jak pierwsze! Nie zmieniono hasła.");
+                                    // Get master key from new password or None if user didn't input it correctly
+                                    let opt_new_master_key = change_password(&mut vault, &master_key);
+                                    match opt_new_master_key {
+                                        Some(new_master_key) => {
+                                            // Password changed correctly
+                                            master_key = new_master_key;
+                                            println!("Nowe hasło ustawione!");
+                                        }
+                                        // None - user didn't correctly repeat the new password
+                                        _ => {println!("Powtórzone hasło musi być identyczne jak pierwsze! Nie zmieniono hasła.");}
                                     }
-
                                 } else {
                                     println!("Nie potwierdzono zmiany hasła");
                                 }
@@ -261,113 +269,22 @@ fn set_new_password() -> Option<String>{
     }
 }
 
-// Custom completer to handle commands and optional labels
-struct CommandAndLabelCompleter {
-    commands: Vec<String>,
-    labels: Vec<String>,
-}
-
-impl Completer for CommandAndLabelCompleter {
-    fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
+/// If user correctly inputs new password it changes encrytpion of all
+/// passwords, verification token and returns new master_key (from new password).
+/// If not, it doesn't change anything and returns None
+fn change_password(vault: &mut Vault, master_key: & [u8]) -> Option<[u8; 32]> {
+    if let Some(new_password) = set_new_password(){
+        let salt = load_salt().expect("Error reading salt file");
+        let new_master_key = derive_master_key(&new_password, &salt);
         
-        // Split input in parts - one (just command) or two (command and label)
-        let input = &line[..pos];
-        let parts: Vec<&str> = input.split_whitespace().collect();
-        
-        // Determine what we're completing
-        let (completing_word, word_start) = if input.ends_with(' ') {
-            // Starting a label for get/remove
-            ("", pos)
-        } else if parts.len() == 2 {
-            // Completing a label for get/remove
-            (parts[1], parts[0].len()+1)
-        } else {
-            // Completing of starting a command
-            (input, 0)
-        };
+        // Decrypt all passwords and encrypt them with new password
+        change_encryption_to_new_master_password(vault, master_key, &new_master_key);
 
-        let mut suggestions = Vec::new();
+        // need to also change it in auth
+        create_verification_token(&new_master_key);
 
-        if parts.is_empty() || (parts.len() == 1 && !input.ends_with(' ')) {
-            // Complete command
-            for cmd in &self.commands {
-                if cmd.starts_with(completing_word) {
-
-                    // Add whitespace to the suggestion if we expect a second argument
-                    if cmd == "get" || cmd == "remove" || cmd == "new"{
-                        suggestions.push(Suggestion {
-                            value: cmd.clone(),
-                            description: None,
-                            extra: None,
-                            style: None,
-                            span: Span {
-                                start: word_start,
-                                end: pos,
-                            },
-                            append_whitespace: true,
-                        });
-                    } else{
-                        suggestions.push(Suggestion {
-                            value: cmd.clone(),
-                            description: None,
-                            extra: None,
-                            style: None,
-                            span: Span {
-                                start: word_start,
-                                end: pos,
-                            },
-                            append_whitespace: false,
-                        });
-                    }
-                }
-            }
-        } else if parts.len() >= 1 {
-            // Complete label for get and remove
-            let command = parts[0];
-            if command == "get" || command == "remove" {
-                for label in &self.labels {
-                    if label.starts_with(completing_word) {
-                        suggestions.push(Suggestion {
-                            value: label.clone(),
-                            description: None,
-                            extra: None,
-                            style: None,
-                            span: Span {
-                                start: word_start,
-                                end: pos,
-                            },
-                            append_whitespace: false,
-                        });
-                    }
-                }
-            }
-        }
-
-        return suggestions;
+        Some(new_master_key)
+    } else{
+        None
     }
-}
-
-/// Constumes both parameters, they must be cloned
-fn bulid_line_editor(labels: Vec<String>, commands: Vec<String>) -> Reedline{
-
-    let completer = Box::new(CommandAndLabelCompleter{commands: commands, labels: labels});
-    // Use the interactive menu to select options from the completer
-    let completion_menu = Box::new(ColumnarMenu::default().with_name("completion_menu"));
-    // Set up the required keybindings
-    let mut keybindings = default_emacs_keybindings();
-    keybindings.add_binding(
-        KeyModifiers::NONE,
-        KeyCode::Tab,
-        ReedlineEvent::UntilFound(vec![
-            ReedlineEvent::Menu("completion_menu".to_string()),
-            ReedlineEvent::MenuNext,
-        ]),
-    );
-
-    let edit_mode = Box::new(Emacs::new(keybindings));
-
-    return Reedline::create()
-        .with_completer(completer)
-        .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
-        .with_edit_mode(edit_mode);
 }

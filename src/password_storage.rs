@@ -4,10 +4,9 @@ use std::{collections::HashMap, fs::{self, File}, io::{Read, Write}, path::PathB
 use aes_gcm::{Aes256Gcm, Key, Nonce,
 aead::{Aead, KeyInit}};
 
+const VAULT_FILE: &str = "passman_data/vault.json";
 
-const VAULT_FILE: &str = "passwd_data/vault.json";
-
-type Vault = HashMap<String, EncryptedPassword>;
+pub type Vault = HashMap<String, EncryptedPassword>;
 
 #[derive(Serialize, Deserialize)]
 pub struct EncryptedPassword{
@@ -15,6 +14,7 @@ pub struct EncryptedPassword{
     cipher: Vec<u8>
 }
 
+/// Load Vault HashMap from the vault file
 pub fn load_vault() -> Vault{
     if !PathBuf::from(vault_path()).exists(){
         return HashMap::new();
@@ -27,6 +27,7 @@ pub fn load_vault() -> Vault{
     return serde_json::from_str::<Vault>(&data).expect("JSON parsing error"); 
 }
 
+/// Save vault HashMap to the vault file
 pub fn save_vault(vault: &Vault){
     let json = serde_json::to_string_pretty(vault).expect("Error serializing passwords");
     
@@ -39,6 +40,7 @@ pub fn save_vault(vault: &Vault){
     file.write_all(json.as_bytes()).expect("Unable to write vault file");
 }
 
+/// Encrypt a password with master_key and add it to the vault
 fn add_password(vault: &mut Vault, label: &str, password: &str, master_key: &[u8]){
     let key = Key::<Aes256Gcm>::from_slice(master_key);
 
@@ -52,11 +54,14 @@ fn add_password(vault: &mut Vault, label: &str, password: &str, master_key: &[u8
     vault.insert(label.to_string(), EncryptedPassword { nonce: nonce.to_vec(), cipher: ciphertext.to_vec() });
 }
 
+/// Encrypt a password with master_key, add it to the vault and save vault in the vault file
 pub fn add_and_save_password(vault: &mut Vault, label: &str, password: &str, master_key: &[u8]){
     add_password(vault, label, password, master_key);
     save_vault(vault);
 }
 
+/// Decrypts password with specified label and returns it or
+/// none if there is no such label or it couldn't be decrypted.
 pub fn get_password(label: &str, master_key: &[u8]) -> Option<String>{
     let vault = load_vault();
 
@@ -73,17 +78,26 @@ pub fn get_password(label: &str, master_key: &[u8]) -> Option<String>{
     Some(String::from_utf8(password).expect("Decrypted password is not a valid UTF-8 string"))
 }
 
-/// Panics if label doesn't exist
+/** 
+ * Removes a password with specified label from the vault.
+ * Panics if label doesn't exist.
+*/ 
 fn remove_password(vault: &mut Vault, label: &str){
     vault.remove(label).expect("Error removing password");
 }
 
+/**
+ * Removes a password with specified label from the vault and
+   saves it to the vault file.
+ * Panics if label doesn't exist.
+ */
 pub fn remove_password_and_save(vault: &mut Vault, label: &str){
     remove_password(vault, label);
     save_vault(vault);
 }
 
-pub fn change_master_password(vault: &mut Vault, old_master_key: &[u8], new_master_key: &[u8]){
+/// For switching master password, decrypts all passwords and encrypts them it new master password
+pub fn change_encryption_to_new_master_password(vault: &mut Vault, old_master_key: &[u8], new_master_key: &[u8]){
     let keys: Vec<String> = vault.keys().cloned().collect();
 
     for label in keys{
