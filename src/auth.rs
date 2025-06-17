@@ -10,13 +10,12 @@ use aes_gcm::{
     Aes256Gcm, Nonce, Key
 };
 
-const SALT_FILE: &str = "passwd_data/salt.bin";
-const VERIFY_FILE: &str = "passwd_data/verify.bin";
+const SALT_FILE: &str = "passman_data/salt.bin";
+const VERIFY_FILE: &str = "passman_data/verify.bin";
 
-
-/// Checks if salt file exists — i.e., if master password was set before
+/// Checks if salt file and verification token files exist - if password was set before
 pub fn master_password_exists() -> bool {
-    PathBuf::from(create_path(SALT_FILE)).exists() && PathBuf::from(create_path(VERIFY_FILE)).exists()
+    PathBuf::from(get_path(SALT_FILE)).exists() && PathBuf::from(get_path(VERIFY_FILE)).exists()
 }
 
 /// Generates a new random salt, stores it in a file and returns it
@@ -24,7 +23,7 @@ pub fn generate_and_store_salt() -> [u8; 16] {
     let mut salt = [0u8; 16];
     OsRng.try_fill_bytes(&mut salt).expect("Error when creating salt");
 
-    let path = PathBuf::from(create_path(SALT_FILE));
+    let path = PathBuf::from(get_path(SALT_FILE));
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).expect("Unable to create salt directory");
     }
@@ -37,7 +36,7 @@ pub fn generate_and_store_salt() -> [u8; 16] {
 
 /// Loads the salt from the file, returns None if file doesn't exist
 pub fn load_salt() -> Option<[u8; 16]> {
-    let path = PathBuf::from(create_path(SALT_FILE));
+    let path = PathBuf::from(get_path(SALT_FILE));
     if !path.exists() {
         return None;
     }
@@ -62,7 +61,7 @@ pub fn derive_master_key(master_password: &str, salt: &[u8]) -> [u8; 32] {
 /// Creates and stores a random verification token encrypted with master_key.
 /// Call this on first master password setup.
 pub fn create_verification_token(master_key: &[u8]) {
-    // Wygeneruj losowy token 32 bajty
+    // Generates random token
     let mut token = [0u8; 32];
     OsRng.try_fill_bytes(&mut token).expect("Error generating verification token");
 
@@ -77,8 +76,8 @@ pub fn create_verification_token(master_key: &[u8]) {
     let ciphertext = cipher.encrypt(nonce, token.as_ref())
         .expect("Encryption failed");
 
-    // Zapisujemy nonce + ciphertext do pliku verify.bin
-    let path = PathBuf::from(create_path(VERIFY_FILE));
+    // Save nonce and ciphertext in verify.bin
+    let path = PathBuf::from(get_path(VERIFY_FILE));
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).expect("Unable to create verify directory");
     }
@@ -89,18 +88,20 @@ pub fn create_verification_token(master_key: &[u8]) {
     file.write_all(&ciphertext).expect("Write ciphertext failed");
 }
 
-/// Weryfikuje master_key poprzez próbę odszyfrowania verification token.
-/// Zwraca true, jeśli odszyfrowanie się powiodło, false w przeciwnym razie.
+/// Verifies master password by trying to decrypt verification token saved when creating the password.
+/// Returns true if it correctly decrypts verification token, false otherwise.
 pub fn verify_master_key(master_key: &[u8]) -> bool {
-    let path = PathBuf::from(create_path(VERIFY_FILE));
+    let path = PathBuf::from(get_path(VERIFY_FILE));
     if !path.exists() {
-        return false;
+        panic!("Verification file doesn't exist!");
     }
 
     let mut file = File::open(path).expect("Unable to open verify file");
     let mut contents = Vec::new();
     file.read_to_end(&mut contents).expect("Unable to read verify file");
 
+    // Lengths is never changed in the program, if it's different then the file
+    // must have been modified by someone
     if contents.len() < 12 {
         panic!("Master key verification file was tampered with");
     }
@@ -114,7 +115,8 @@ pub fn verify_master_key(master_key: &[u8]) -> bool {
     cipher.decrypt(nonce, ciphertext).is_ok()
 }
 
-fn create_path(file_name: &str) -> PathBuf{
+/// Get full path to the given file
+fn get_path(file_name: &str) -> PathBuf{
     let mut path = dirs::data_dir().expect("Couldn't find default data directory");
     path.push(file_name);
     return path;
