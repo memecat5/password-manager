@@ -7,10 +7,12 @@ use clipboard::{ClipboardProvider, ClipboardContext};
 use reedline::Signal;
 use rpassword::read_password;
 use zeroize::Zeroize;
+use passwords::PasswordGenerator;
 use crate::auth::*;
 use crate::cli::MyPrompt;
 use crate::password_storage::*;
 
+static DEFAULT_PASSWORD_LEN: usize = 32;
 
 fn main() {
     // Check if master password is set
@@ -92,8 +94,8 @@ fn main() {
                 // Match command
                 match parts[0] {
                     "new" => {
-                        if parts.len() < 2 {
-                            println!("Użycie: new <nazwa>");
+                        if parts.len() != 2 && parts.len() != 3 {
+                            println!("Użycie: new <nazwa> lub new <nazwa> <długość>");
                             continue;
                         }
                         
@@ -104,8 +106,41 @@ fn main() {
                             continue;
                         }
 
+                        let len: usize;
+                        if parts.len() == 3{
+                            if let Ok(input) = parts[2].parse::<usize>(){
+                                len = input;
+                            } else{
+                                println!("Długość hasła musi być dodatnią liczbą całkowitą!");
+                                continue;
+                            };
+                            if len == 0{
+                                println!("Długość hasła musi być dodatnią liczbą całkowitą!");
+                                continue; 
+                            }
+
+                        } else{
+                            len = DEFAULT_PASSWORD_LEN;
+                        }
+
+                        // Password generator
+                        let password_generator = PasswordGenerator::new()
+                            .length(len)
+                            .lowercase_letters(true)
+                            .uppercase_letters(true)
+                            .symbols(true)
+                            .strict(true);
+
                         // Generate random password and save it
-                        let password = generate_random_password();
+                        let password: String;
+                        match password_generator.generate_one() {
+                            Ok(p) => {password = p}
+                            Err(error) => {
+                                println!("{}", error);
+                                continue;
+                            }
+                        }
+
                         add_and_save_password(&mut vault, label, &password, &master_key);
                         println!("Hasło {} pomyślnie zapisane", label);
 
@@ -115,7 +150,7 @@ fn main() {
                     }
                     "add" => {
                         if parts.len() < 2 {
-                            println!("Użycie: new <nazwa>");
+                            println!("Użycie: add <nazwa>");
                             continue;
                         }
                         
@@ -259,13 +294,13 @@ fn main() {
 fn print_help(){
     println!(
 "Dostępne komendy:
-    new <nazwa> - wygeneruj losowe hasło z podaną etykietą
-    add <nazwa> - dodaj nowe hasło z podaną etykietą
-    remove <nazwa> - usuń hasło z podaną etykietą
-    get <nazwa> - skopiuj do schowka hasło z podaną etykietą
-    change-password - zmień główne hasło
-    help - treść oczywista
-    exit - wyjdź"
+    new <nazwa> - Wygeneruj losowe hasło z podaną etykietą. Opcjonalnie można też podać długość hasła.
+    add <nazwa> - Dodaj nowe hasło z podaną etykietą.
+    remove <nazwa> - Usuń hasło z podaną etykietą.
+    get <nazwa> - Skopiuj do schowka hasło z podaną etykietą.
+    change-password - Zmień główne hasło.
+    help - Treść oczywista.
+    exit - Wyjdź."
     );
 }
 

@@ -1,4 +1,4 @@
-use rand::{rngs::OsRng, Rng, TryRngCore};
+use rand::{rngs::OsRng, TryRngCore};
 use serde::{Serialize, Deserialize};
 use std::{collections::HashMap, fs::{self, File}, io::{Read, Write}, path::PathBuf};
 use aes_gcm::{Aes256Gcm, Key, Nonce,
@@ -110,17 +110,6 @@ pub fn change_encryption_to_new_master_password(vault: &mut Vault, old_master_ke
 
     // Save new vault
     save_vault(vault);
-}
-
-pub fn generate_random_password() -> String{
-    // Printable ASCII characters
-    let characters: Vec<char> = (0x20u8..=0x7Eu8).map(|c| c as char).collect();
-    let mut rng = rand::rng();
-
-    // Every password will have fixed length (no point in allowing users to change this)
-    let len = 32;
-
-    return (0..len).map(|_| characters[rng.random_range(0..characters.len())]).collect();
 }
 
 fn vault_path() -> PathBuf{
