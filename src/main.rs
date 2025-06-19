@@ -19,7 +19,7 @@ fn main() {
         println!("Nie znaleziono profilu.");
         let password: String;
         loop{
-            let opt_password = set_new_password();
+            let opt_password = password_input();
 
             match opt_password{
                 Some(pass) => {
@@ -60,6 +60,7 @@ fn main() {
     // Prepare for REPL
     let commands = vec![
         String::from("new"),
+        String::from("add"),
         String::from("remove"),
         String::from("get"),
         String::from("change-password"),
@@ -111,6 +112,30 @@ fn main() {
                         // Rebuild line editor to update completions (but it clears history)
                         line_editor = cli::bulid_line_editor(vault.keys().cloned().collect(), commands.clone());
                         
+                    }
+                    "add" => {
+                        if parts.len() < 2 {
+                            println!("Użycie: new <nazwa>");
+                            continue;
+                        }
+                        
+                        // Check if this label isn't already used
+                        let label = parts[1];
+                        if vault.contains_key(label){
+                            println!("Już istnieje hasło z tą etykietą!");
+                            continue;
+                        }
+
+                        let opt_password = password_input();
+                        match opt_password{
+                            Some(password) => {
+                                add_and_save_password(&mut vault, label, &password, &master_key);
+                                println!("Dodano hasło {}", label);
+                            }
+                            
+                            _ => {println!("Powtórzone hasło musi być identyczne jak pierwsze!");}
+                        }
+
                     }
                     "remove" => {
                         if parts.len() < 2 {
@@ -234,7 +259,8 @@ fn main() {
 fn print_help(){
     println!(
 "Dostępne komendy:
-    new <nazwa> - dodaj nowe hasło z podaną etykietą
+    new <nazwa> - wygeneruj losowe hasło z podaną etykietą
+    add <nazwa> - dodaj nowe hasło z podaną etykietą
     remove <nazwa> - usuń hasło z podaną etykietą
     get <nazwa> - skopiuj do schowka hasło z podaną etykietą
     change-password - zmień główne hasło
@@ -251,8 +277,8 @@ fn on_exit(master_key: &mut [u8], mut clipboard: ClipboardContext){
 }
 
 /// Returns None is user didn't repeat the password correctly
-fn set_new_password() -> Option<String>{
-    print!("Stwórz nowe hasło: ");
+fn password_input() -> Option<String>{
+    print!("Podaj nowe hasło: ");
     io::stdout().flush().unwrap();
     let password = read_password().unwrap();
 
@@ -271,7 +297,7 @@ fn set_new_password() -> Option<String>{
 /// passwords, verification token and returns new master_key (from new password).
 /// If not, it doesn't change anything and returns None
 fn change_password(vault: &mut Vault, master_key: & [u8]) -> Option<[u8; 32]> {
-    if let Some(new_password) = set_new_password(){
+    if let Some(new_password) = password_input(){
         let salt = load_salt().expect("Error reading salt file");
         let new_master_key = derive_master_key(&new_password, &salt);
         
