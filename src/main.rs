@@ -149,7 +149,7 @@ fn main() {
                         
                     }
                     "add" => {
-                        if parts.len() < 2 {
+                        if parts.len() != 2 {
                             println!("Użycie: add <nazwa>");
                             continue;
                         }
@@ -173,7 +173,7 @@ fn main() {
 
                     }
                     "remove" => {
-                        if parts.len() < 2 {
+                        if parts.len() != 2 {
                             println!("Użycie: remove <nazwa>");
                             continue;
                         }
@@ -212,7 +212,7 @@ fn main() {
                         
                     }
                     "get" => {
-                        if parts.len() < 2 {
+                        if parts.len() != 2 {
                             println!("Użycie: get <nazwa>");
                             continue;
                         }
@@ -232,7 +232,7 @@ fn main() {
 
                     }
                     "change-password" => {
-                        if parts.len() > 1{
+                        if parts.len() != 1{
                             println!("Nadmiarowy argument {}", parts[1]);
                             continue;
                         }
@@ -265,14 +265,14 @@ fn main() {
                         
                     }
                     "help" => {
-                        if parts.len() > 1{
+                        if parts.len() != 1{
                             println!("Nadmiarowy argument {}", parts[1]);
                         } else{
                             print_help()
                         }
                     }
                     "exit" => {
-                        if parts.len() > 1{
+                        if parts.len() != 1{
                             println!("Nadmiarowy argument {}", parts[1]);
                         } else{
                             on_exit(&mut master_key, clipboard);
